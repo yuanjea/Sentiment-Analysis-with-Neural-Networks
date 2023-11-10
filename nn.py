@@ -5,6 +5,14 @@ import transformers
 import tensorflow as tf
 import numpy
 
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.layers import (SimpleRNN, Dense, Conv1D, Conv2D, MaxPooling2D,
+                                      Flatten, Bidirectional, LSTM, GRU, Embedding, GlobalMaxPooling1D)
+
+# GPU Check
+#print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
+
 # use the tokenizer from DistilRoBERTa
 tokenizer = transformers.AutoTokenizer.from_pretrained("distilroberta-base")
 
@@ -23,7 +31,7 @@ def to_bow(example):
     return {"input_bow": vector}
 
 
-def train(model_path="model", train_path="train.csv", dev_path="dev.csv"):
+def train(model_path="model", train_path="../graduate-project-data/train.csv", dev_path="../graduate-project-data/dev.csv"):
 
     # load the CSVs into Huggingface datasets to allow use of the tokenizer
     hf_dataset = datasets.load_dataset("csv", data_files={
@@ -40,46 +48,61 @@ def train(model_path="model", train_path="train.csv", dev_path="dev.csv"):
     # convert text and labels to format expected by model
     hf_dataset = hf_dataset.map(gather_labels)
     hf_dataset = hf_dataset.map(tokenize, batched=True)
-    hf_dataset = hf_dataset.map(to_bow)
+    #hf_dataset = hf_dataset.map(to_bow) # For Feed Forward NN
 
     # convert Huggingface datasets to Tensorflow datasets
     train_dataset = hf_dataset["train"].to_tf_dataset(
-        columns="input_bow",
-        label_cols="labels",
+        columns="input_ids", # "input_bow" for FF
+        label_cols="labels", 
         batch_size=16,
         shuffle=True)
     dev_dataset = hf_dataset["validation"].to_tf_dataset(
-        columns="input_bow",
+        columns="input_ids", # input_bow for FF
         label_cols="labels",
         batch_size=16)
-
+    
     # define a model with a single fully connected layer
-    model = tf.keras.Sequential([
-        tf.keras.layers.Dense(
-            units=len(labels),
-            input_dim=tokenizer.vocab_size,
-            activation='sigmoid')])
+    # Default model
+    #model = tf.keras.Sequential([tf.keras.layers.Dense(units=len(labels), input_dim=tokenizer.vocab_size, activation='sigmoid')])
+    
+    
+    # model.add(Dense(128, input_dim=tokenizer.vocab_size, activation='relu'))
+    # model.add(Dense(64, activation='relu'))
+    # model.add(Dense(32, activation='relu'))
+
+    #model.add(SimpleRNN(32, activation='relu', input_shape=(None, tokenizer.vocab_size), return_sequences=True))
+
+    model = Sequential()
+    model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
+    model.add(Bidirectional(GRU(64, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
+    model.add(Dense(64, activation='relu'))
+    model.add(Flatten())
+    model.add(Dense(len(labels), activation='sigmoid'))
 
     # specify compilation hyperparameters
     model.compile(
         optimizer=tf.keras.optimizers.Adam(0.001),
         loss=tf.keras.losses.binary_crossentropy,
         metrics=[tf.keras.metrics.F1Score(average="micro", threshold=0.5)])
+    
+    # Model summmary
+    model.summary()
 
     # fit the model to the training data, monitoring F1 on the dev data
     model.fit(
         train_dataset,
         epochs=10,
+        batch_size=32,
         validation_data=dev_dataset,
         callbacks=[
             tf.keras.callbacks.ModelCheckpoint(
                 filepath=model_path,
                 monitor="val_f1_score",
                 mode="max",
-                save_best_only=True)])
+                save_best_only=True),
+                EarlyStopping(monitor='val_f1_score', mode='auto', patience=5, restore_best_weights=True)])
 
-
-def predict(model_path="model", input_path="dev.csv"):
+def predict(model_path="model", input_path="../graduate-project-data/dev.csv"):
 
     # load the saved model
     model = tf.keras.models.load_model(model_path)
@@ -91,9 +114,9 @@ def predict(model_path="model", input_path="dev.csv"):
     # create input features in the same way as in train()
     hf_dataset = datasets.Dataset.from_pandas(df)
     hf_dataset = hf_dataset.map(tokenize, batched=True)
-    hf_dataset = hf_dataset.map(to_bow)
+    #hf_dataset = hf_dataset.map(to_bow) # For Feed Forward NN
     tf_dataset = hf_dataset.to_tf_dataset(
-        columns="input_bow",
+        columns="input_ids", # input_bow for FF
         batch_size=16)
 
     # generate predictions from model
@@ -105,6 +128,19 @@ def predict(model_path="model", input_path="dev.csv"):
     # write the Pandas dataframe to a zipped CSV file
     df.to_csv("submission.zip", index=False, compression=dict(
         method='zip', archive_name=f'submission.csv'))
+    
+    # Calculate F1 score using tf.keras.metrics.F1Score
+    f1_metric = tf.keras.metrics.F1Score(average="micro", threshold=0.5)
+    
+    # Load the true labels for the dev set
+    true_labels_df = pandas.read_csv("../graduate-project-data/dev.csv")
+    
+    # Calculate the F1 score
+    true_labels = true_labels_df.iloc[:, 1:].values
+    f1_metric.update_state(true_labels, predictions)
+    f1_score = f1_metric.result().numpy()
+    
+    print(f"F1 Score (Micro): {f1_score}")
 
 
 if __name__ == "__main__":
