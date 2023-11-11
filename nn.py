@@ -8,7 +8,8 @@ import numpy
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.layers import (SimpleRNN, Dense, Conv1D, Conv2D, MaxPooling2D,
-                                      Flatten, Bidirectional, LSTM, GRU, Embedding, GlobalMaxPooling1D)
+                                      Flatten, Bidirectional, LSTM, GRU, Embedding, 
+                                      Dropout, GlobalMaxPooling1D)
 
 # GPU Check
 #print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
@@ -64,17 +65,12 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
     # define a model with a single fully connected layer
     # Default model
     #model = tf.keras.Sequential([tf.keras.layers.Dense(units=len(labels), input_dim=tokenizer.vocab_size, activation='sigmoid')])
-    
-    
-    # model.add(Dense(128, input_dim=tokenizer.vocab_size, activation='relu'))
-    # model.add(Dense(64, activation='relu'))
-    # model.add(Dense(32, activation='relu'))
-
     #model.add(SimpleRNN(32, activation='relu', input_shape=(None, tokenizer.vocab_size), return_sequences=True))
 
     model = Sequential()
     model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
     model.add(Bidirectional(GRU(64, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
+    model.add(Dropout(0.5)) 
     model.add(Dense(64, activation='relu'))
     model.add(Flatten())
     model.add(Dense(len(labels), activation='sigmoid'))
@@ -89,10 +85,10 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
     model.summary()
 
     # fit the model to the training data, monitoring F1 on the dev data
-    model.fit(
+    history = model.fit(
         train_dataset,
         epochs=10,
-        batch_size=32,
+        batch_size=64,
         validation_data=dev_dataset,
         callbacks=[
             tf.keras.callbacks.ModelCheckpoint(
@@ -101,6 +97,10 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
                 mode="max",
                 save_best_only=True),
                 EarlyStopping(monitor='val_f1_score', mode='auto', patience=5, restore_best_weights=True)])
+
+    # Print final validation F1 score
+    final_val_f1 = history.history['val_f1_score'][-1]
+    print(f"Final Validation F1 Score: {final_val_f1:.4f}")
 
 def predict(model_path="model", input_path="../graduate-project-data/dev.csv"):
 
