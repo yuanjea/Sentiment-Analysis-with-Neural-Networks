@@ -72,6 +72,7 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
     model.add(Bidirectional(GRU(64, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
     model.add(Dropout(0.5)) 
     model.add(Dense(64, activation='relu'))
+    model.add(Dropout(0.5)) 
     model.add(Flatten())
     model.add(Dense(len(labels), activation='sigmoid'))
 
