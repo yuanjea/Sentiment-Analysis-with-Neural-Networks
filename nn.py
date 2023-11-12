@@ -69,12 +69,12 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
 
     model = Sequential()
     model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
-    model.add(Bidirectional(GRU(64, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
+    model.add(Bidirectional(GRU(128, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
     model.add(Dropout(0.5)) 
     model.add(Dense(64, activation='relu'))
     model.add(Dropout(0.5)) 
     model.add(Flatten())
-    model.add(Dense(len(labels), activation='sigmoid'))
+    model.add(Dense(len(labels), activation='sigmoid')) 
 
     # specify compilation hyperparameters
     model.compile(
