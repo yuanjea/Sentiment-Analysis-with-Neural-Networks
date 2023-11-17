@@ -65,20 +65,37 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
     # define a model with a single fully connected layer
     # Default model
     #model = tf.keras.Sequential([tf.keras.layers.Dense(units=len(labels), input_dim=tokenizer.vocab_size, activation='sigmoid')])
-    #model.add(SimpleRNN(32, activation='relu', input_shape=(None, tokenizer.vocab_size), return_sequences=True))
+    
+    # RNN model
+    # model = Sequential()
+    # model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
+    # model.add(SimpleRNN(128, activation='relu', input_shape=(tokenizer.vocab_size,), return_sequences=True))
+    # model.add(Dropout(0.5))
+    # model.add(Dense(64, activation='relu'))
+    # model.add(Dropout(0.5))
+    # model.add(Flatten())
+    # model.add(Dense(len(labels), activation='sigmoid'))
+
+    # Bidiretional GRU model
+    # model = Sequential()
+    # model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
+    # model.add(Bidirectional(GRU(128, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
+    # model.add(Dropout(0.5)) 
+    # model.add(Dense(64, activation='relu'))
+    # model.add(Dropout(0.5))
+    # model.add(Flatten())
+    # model.add(Dense(len(labels), activation='sigmoid'))
 
     model = Sequential()
     model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
-    model.add(Bidirectional(GRU(128, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
-    model.add(Dropout(0.5)) 
-    model.add(Dense(64, activation='relu'))
-    model.add(Dropout(0.5)) 
-    model.add(Flatten())
-    model.add(Dense(len(labels), activation='sigmoid')) 
+    model.add(Conv1D(128, kernel_size=3, strides=1, activation='relu', input_shape=(tokenizer.vocab_size,)))
+    model.add(GlobalMaxPooling1D())
+    model.add(Dropout(0.5))
+    model.add(Dense(len(labels), activation='sigmoid'))
 
     # specify compilation hyperparameters
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(0.001),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
         loss=tf.keras.losses.binary_crossentropy,
         metrics=[tf.keras.metrics.F1Score(average="micro", threshold=0.5)])
     
