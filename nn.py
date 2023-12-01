@@ -4,12 +4,14 @@ import pandas
 import transformers
 import tensorflow as tf
 import numpy
+import matplotlib.pyplot as plt
 
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.regularizers import (L1,L2) 
 from tensorflow.keras.layers import (SimpleRNN, Dense, Conv1D, Conv2D, MaxPooling2D,
                                       Flatten, Bidirectional, LSTM, GRU, Embedding, 
-                                      Dropout, GlobalMaxPooling1D)
+                                      Dropout, GlobalMaxPooling1D, GlobalAveragePooling1D)
 
 # GPU Check
 #print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
@@ -81,23 +83,37 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
     # model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
     # model.add(Bidirectional(GRU(128, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
     # model.add(Dropout(0.5)) 
-    # model.add(Dense(64, activation='relu'))
+    # model.add(Dense(64, activation='relu')) #model.add(Dense(64, activation='relu', kernel_regularizer=L2(0.01)))
     # model.add(Dropout(0.5))
-    # model.add(Flatten())
+    # model.add(Flatten()) #model.add(GlobalAveragePooling1D())
     # model.add(Dense(len(labels), activation='sigmoid'))
 
+    # Hyperband tuned Bidirectional GRU model 
+    # learning_rate: 0.001
+    # threshold: 0.4
+    # batch_size: 64
+    # epochs: 10
     model = Sequential()
     model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
-    model.add(Conv1D(128, kernel_size=3, strides=1, activation='relu', input_shape=(tokenizer.vocab_size,)))
-    model.add(GlobalMaxPooling1D())
-    model.add(Dropout(0.5))
+    model.add(Bidirectional(GRU(128, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
+    model.add(Dropout(0.1)) 
+    model.add(Dense(64, activation='relu')) #model.add(Dense(64, activation='relu', kernel_regularizer=L2(0.01)))
+    model.add(Dropout(0.1))
+    model.add(Flatten()) #model.add(GlobalAveragePooling1D()) 
     model.add(Dense(len(labels), activation='sigmoid'))
+
+    # model = Sequential()
+    # model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
+    # model.add(Conv1D(128, kernel_size=3, strides=1, activation='relu', input_shape=(tokenizer.vocab_size,)))
+    # model.add(GlobalMaxPooling1D())
+    # model.add(Dropout(0.5))
+    # model.add(Dense(len(labels), activation='sigmoid'))
 
     # specify compilation hyperparameters
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
         loss=tf.keras.losses.binary_crossentropy,
-        metrics=[tf.keras.metrics.F1Score(average="micro", threshold=0.5)])
+        metrics=[tf.keras.metrics.F1Score(average="micro", threshold=0.4)])
     
     # Model summmary
     model.summary()
@@ -114,11 +130,14 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
                 monitor="val_f1_score",
                 mode="max",
                 save_best_only=True),
-                EarlyStopping(monitor='val_f1_score', mode='auto', patience=5, restore_best_weights=True)])
+                EarlyStopping(monitor='val_f1_score', mode='max', patience=3, restore_best_weights=True)])
 
     # Print final validation F1 score
     final_val_f1 = history.history['val_f1_score'][-1]
     print(f"Final Validation F1 Score: {final_val_f1:.4f}")
+
+    # Learning Curves
+    plot_learning_curves(history)
 
 def predict(model_path="model", input_path="../graduate-project-data/dev.csv"):
 
@@ -161,10 +180,44 @@ def predict(model_path="model", input_path="../graduate-project-data/dev.csv"):
     print(f"F1 Score (Micro): {f1_score}")
 
 
+def plot_learning_curves(history):
+
+    fig, axs = plt.subplots(2)
+
+    # Create micro f1 subplot
+    axs[0].plot(history.history["f1_score"], label="train f1 score")
+    axs[0].plot(history.history["val_f1_score"], label="test f1 score")
+    axs[0].set_ylabel("F1 Score")
+    axs[0].legend(loc="lower right")
+    axs[0].set_title("F1 Score eval")
+
+    # Create Loss subplot
+    axs[1].plot(history.history["loss"], label="train loss")
+    axs[1].plot(history.history["val_loss"], label="test loss")
+    axs[1].set_ylabel("Loss")
+    axs[1].set_xlabel("Epoch")
+    axs[1].legend(loc="upper right")
+    axs[1].set_title("Loss eval")
+
+    plt.show()
+
+    # Plot training & validation loss values
+    # plt.plot(history.history['loss'])
+    # plt.plot(history.history['val_loss'])
+    # plt.title('Model loss')
+    # plt.ylabel('Loss')
+    # plt.xlabel('Epoch')
+    # plt.legend(['Train', 'Validation'], loc='upper left')
+    # plt.show()
+
+    # Print final validation F1 score
+    final_val_f1 = history.history['val_f1_score'][-1]
+    print(f"Final Validation F1 Score: {final_val_f1:.4f}")
+
 if __name__ == "__main__":
     # parse the command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices={"train", "predict"})
+    parser.add_argument("command", choices={"train", "predict", "plot_learning_curves"})
     args = parser.parse_args()
 
     # call either train() or predict()
