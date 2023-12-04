@@ -3,7 +3,7 @@ import datasets
 import pandas
 import transformers
 import tensorflow as tf
-import numpy
+import numpy as np
 import matplotlib.pyplot as plt
 
 from tensorflow.keras.models import Sequential
@@ -34,7 +34,7 @@ def to_bow(example):
     return {"input_bow": vector}
 
 
-def train(model_path="model", train_path="../graduate-project-data/train.csv", dev_path="../graduate-project-data/dev.csv"):
+def train(model_path="cnn_w3h_etm5_2", train_path="../graduate-project-data/train.csv", dev_path="../graduate-project-data/dev.csv"):
 
     # load the CSVs into Huggingface datasets to allow use of the tokenizer
     hf_dataset = datasets.load_dataset("csv", data_files={
@@ -63,6 +63,31 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
         columns="input_ids", # input_bow for FF
         label_cols="labels",
         batch_size=16)
+    
+    # Class weight calculation
+    all_ld = np.array([])
+    for batch in train_dataset:
+        input_data, label_data = batch
+        ld = tf.convert_to_tensor(label_data, dtype=tf.float32)
+        all_ld = np.vstack([all_ld, ld.numpy()]) if all_ld.size else ld.numpy()
+
+    # You can sum along axis 0 to get the count of each class
+    class_counts = np.sum(all_ld, axis=0)
+
+    # total number of samples in your training dataset
+    total = len(all_ld)
+
+    # Calculate class weights
+    #class_weights = {i: total / (2.0 * count) for i, count in enumerate(class_counts)}
+    class_weights = {
+    0: total / (2.0 * class_counts[0]) * 4,  # Admiration
+    1: total / (2.0 * class_counts[1]) * 2, # Amusement
+    2: total / (2.0 * class_counts[2]), # Gratitude
+    3: total / (2.0 * class_counts[3]) * 3, # Love
+    4: total / (2.0 * class_counts[4]), # Pride
+    5: total / (2.0 * class_counts[5]), # Relief
+    6: total / (2.0 * class_counts[6]),  # Remorse
+    }
     
     # define a model with a single fully connected layer
     # Default model
@@ -93,27 +118,28 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
     # threshold: 0.4
     # batch_size: 64
     # epochs: 10
-    model = Sequential()
-    model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
-    model.add(Bidirectional(GRU(128, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
-    model.add(Dropout(0.1)) 
-    model.add(Dense(64, activation='relu')) #model.add(Dense(64, activation='relu', kernel_regularizer=L2(0.01)))
-    model.add(Dropout(0.1))
-    model.add(Flatten()) #model.add(GlobalAveragePooling1D()) 
-    model.add(Dense(len(labels), activation='sigmoid'))
-
     # model = Sequential()
     # model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=128, input_length=64))
-    # model.add(Conv1D(128, kernel_size=3, strides=1, activation='relu', input_shape=(tokenizer.vocab_size,)))
-    # model.add(GlobalMaxPooling1D())
-    # model.add(Dropout(0.5))
+    # model.add(Bidirectional(GRU(128, return_sequences=True), input_shape=(tokenizer.vocab_size,)))
+    # model.add(Dropout(0.1)) 
+    # model.add(Dense(64, activation='relu')) #model.add(Dense(64, activation='relu', kernel_regularizer=L2(0.01)))
+    # model.add(Dropout(0.1))
+    # model.add(Flatten()) #model.add(GlobalAveragePooling1D()) 
     # model.add(Dense(len(labels), activation='sigmoid'))
+
+    # CNN model
+    model = Sequential()
+    model.add(Embedding(input_dim=tokenizer.vocab_size, output_dim=256, input_length=64))
+    model.add(Conv1D(128, kernel_size=2, strides=1, activation='relu', input_shape=(tokenizer.vocab_size,)))
+    model.add(GlobalMaxPooling1D())
+    model.add(Dropout(0.1))
+    model.add(Dense(len(labels), activation='sigmoid'))
 
     # specify compilation hyperparameters
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
         loss=tf.keras.losses.binary_crossentropy,
-        metrics=[tf.keras.metrics.F1Score(average="micro", threshold=0.4)])
+        metrics=[tf.keras.metrics.F1Score(average="micro", threshold=0.5)])
     
     # Model summmary
     model.summary()
@@ -122,15 +148,16 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
     history = model.fit(
         train_dataset,
         epochs=10,
-        batch_size=64,
+        batch_size=32,
         validation_data=dev_dataset,
+        class_weight=class_weights,
         callbacks=[
             tf.keras.callbacks.ModelCheckpoint(
                 filepath=model_path,
                 monitor="val_f1_score",
                 mode="max",
                 save_best_only=True),
-                EarlyStopping(monitor='val_f1_score', mode='max', patience=3, restore_best_weights=True)])
+                EarlyStopping(monitor='val_f1_score', mode='max', patience=5, restore_best_weights=True)])
 
     # Print final validation F1 score
     final_val_f1 = history.history['val_f1_score'][-1]
@@ -139,7 +166,7 @@ def train(model_path="model", train_path="../graduate-project-data/train.csv", d
     # Learning Curves
     plot_learning_curves(history)
 
-def predict(model_path="model", input_path="../graduate-project-data/dev.csv"):
+def predict(model_path="", input_path="../graduate-project-data/dev.csv"):
 
     # load the saved model
     model = tf.keras.models.load_model(model_path)
@@ -157,7 +184,7 @@ def predict(model_path="model", input_path="../graduate-project-data/dev.csv"):
         batch_size=16)
 
     # generate predictions from model
-    predictions = numpy.where(model.predict(tf_dataset) > 0.5, 1, 0)
+    predictions = np.where(model.predict(tf_dataset) > 0.5, 1, 0)
 
     # assign predictions to label columns in Pandas data frame
     df.iloc[:, 1:] = predictions
